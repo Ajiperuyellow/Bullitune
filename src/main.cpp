@@ -8,17 +8,20 @@
 //#include <driver/adc.h>
 //#include <Arduino.h> 
 
+//BMP280
 Adafruit_BMP280 bmp; // use I2C interface
 Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
 Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
-//BMP280
 #define SEALEVELPRESSURE_HPA (1013.25)
 void printValues();
 
 //Display
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 
+//Neigungsmesser
+const int ADCPin = 34;
+int ADCValue = 0;
 
 byte Grad[8] = {
   B00100,
@@ -34,6 +37,11 @@ byte Grad[8] = {
 //CODE:
 
 void setup() {
+
+  analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
+  analogSetWidth(10);
+  analogSetCycles(20);
+
   lcd.init();                      // initialize the lcd 
   lcd.createChar(1, Grad);
   // Print a message to the LCD.
@@ -58,12 +66,23 @@ void setup() {
 
   bmp_temp->printSensorDetails();    
 
-
+  printValues();
+  delay(200);
 }
 
 void loop() {
-  printValues();
-  delay(500);
+  int ADCtotal;
+  ADCtotal=0;
+  for (int i = 0; i < 10; i++) 
+  {
+    ADCValue = analogRead(ADCPin);
+    ADCtotal+=ADCValue;
+    delay(50);
+  }
+  ADCtotal/=10;
+  lcd.setCursor(0,3);
+  lcd.print(String(ADCtotal));
+  
 }
 
 //#include <SPI.h>

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -18,11 +19,6 @@ void printValues();
 
 //Display
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
-
-//Neigungsmesser
-const int ADCPin = 34;
-int ADCValue = 0;
-
 byte Grad[8] = {
   B00100,
   B01010,
@@ -32,6 +28,19 @@ byte Grad[8] = {
   B00000,
   B00000,
 };
+
+//Neigungsmesser
+const int ADCPin = 34;
+int ADCValue = 0;
+
+//SoftwareSerial
+#if defined(ESP8266) && !defined(D5)
+#define D5 (14)
+#define D6 (12)
+#define D7 (13)
+#define D8 (15)
+#endif
+
 
 
 //CODE:

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -14,15 +15,14 @@ Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
 Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
 #define SEALEVELPRESSURE_HPA (1013.25)
-void printValues();
+
+//FUNKTIONEN
+String printValues();
+void callPhone();
+void sendSMS(String TextToSend, String Nummer);
 
 //Display
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
-
-//Neigungsmesser
-const int ADCPin = 34;
-int ADCValue = 0;
-
 byte Grad[8] = {
   B00100,
   B01010,
@@ -33,10 +33,25 @@ byte Grad[8] = {
   B00000,
 };
 
+//Neigungsmesser
+const int ADCPin = 34;
+int ADCValue = 0;
+
+//SoftwareSerial
+#define D5 (14)
+#define D6 (12)
+
+#ifdef ESP32
+#define BAUD_RATE 9600
+#endif
+
+SoftwareSerial swSer;
 
 //CODE:
 
 void setup() {
+
+  swSer.begin(BAUD_RATE, SWSERIAL_8N1, D5, D6, false, 95, 11);
 
   analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
   analogSetWidth(10);
@@ -66,11 +81,25 @@ void setup() {
 
   bmp_temp->printSensorDetails();    
 
-  printValues();
-  delay(200);
+
+  //delay(2000);
+  //callPhone();
+  //delay(10000);
 }
 
 void loop() {
+
+  /*for (char ch = ' '; ch <= 'z'; ch++) 
+  {
+		swSer.write(ch);
+	}
+	swSer.println("");*/
+
+  String SendString;
+
+  SendString = printValues();
+  delay(100);
+
   int ADCtotal;
   ADCtotal=0;
   for (int i = 0; i < 10; i++) 
@@ -80,9 +109,21 @@ void loop() {
     delay(50);
   }
   ADCtotal/=10;
+  SendString += "Neigung="+String((ADCtotal/400.-1.)*20.)+" Grad. :D";
+  if(ADCtotal>500)
+  {
+    sendSMS(SendString, "015781581259");
+    delay(1000);
+    //sendSMS(SendString, "015773125452");
+    //delay(1000);
+    //sendSMS(SendString, "017660909952");
+    delay(1000);
+    delay(1000);
+  }
+
   lcd.setCursor(0,3);
-  lcd.print(String(ADCtotal));
-  
+  lcd.print(String((ADCtotal/400.-1.)*20.));
+  lcd.print(" Grad");
 }
 
 //#include <SPI.h>
@@ -94,20 +135,25 @@ void loop() {
 //Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
 
 
-void printValues() {
+String printValues() {
   sensors_event_t temp_event, pressure_event;
   bmp_temp->getEvent(&temp_event);
   bmp_pressure->getEvent(&pressure_event);
 
-
+  String Datastring;
   
   lcd.setCursor(0,0);
   lcd.print("Temp= ");
-  lcd.print(temp_event.temperature);
+  String TString = String(temp_event.temperature);
+  lcd.print(TString);
   lcd.print(" ");
   lcd.write(1);
   lcd.print("C");
   
+  Datastring = "Bulli: T=" + TString + " C, ";
+  
+
+
   // Convert temperature to Fahrenheit
   /*Serial.print("Temperature = ");
   Serial.print(1.8 * bme.readTemperature() + 32);
@@ -123,5 +169,21 @@ void printValues() {
   lcd.print(bmp.readAltitude(SEALEVELPRESSURE_HPA));
   lcd.print(" m");
 
+  Datastring +="Alt=" + String(bmp.readAltitude(SEALEVELPRESSURE_HPA)) + " m, ";
+  return Datastring;
+}
 
+void sendSMS(String TextToSend, String Nummer)
+{
+  swSer.println("AT+CMGF=1");
+  delay(2000);
+  swSer.println("AT+CMGS="+Nummer);
+  delay(300);
+  swSer.println(TextToSend);
+  swSer.write(26);
+}
+
+void callPhone()
+{
+  swSer.println("ATD015781581259");;
 }

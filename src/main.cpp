@@ -34,18 +34,20 @@ const int ADCPin = 34;
 int ADCValue = 0;
 
 //SoftwareSerial
-#if defined(ESP8266) && !defined(D5)
 #define D5 (14)
 #define D6 (12)
-#define D7 (13)
-#define D8 (15)
+
+#ifdef ESP32
+#define BAUD_RATE 9600
 #endif
 
-
+SoftwareSerial swSer;
 
 //CODE:
 
 void setup() {
+
+  swSer.begin(BAUD_RATE, SWSERIAL_8N1, D5, D6, false, 95, 11);
 
   analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
   analogSetWidth(10);
@@ -80,6 +82,16 @@ void setup() {
 }
 
 void loop() {
+
+  for (char ch = ' '; ch <= 'z'; ch++) 
+  {
+		swSer.write(ch);
+	}
+	swSer.println("");
+
+
+
+
   int ADCtotal;
   ADCtotal=0;
   for (int i = 0; i < 10; i++) 

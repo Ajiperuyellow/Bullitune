@@ -20,6 +20,7 @@ Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 String printValues();
 void callPhone();
 void sendSMS(String TextToSend, String Nummer);
+bool check_ok_status();
 
 //Display
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
@@ -37,6 +38,9 @@ byte Grad[8] = {
 const int ADCPin = 34;
 int ADCValue = 0;
 
+// Button
+const int PushButton=35;
+
 //SoftwareSerial
 #define D5 (14)
 #define D6 (12)
@@ -51,12 +55,15 @@ SoftwareSerial swSer;
 
 void setup() {
 
+  // Software Serial init
   swSer.begin(BAUD_RATE, SWSERIAL_8N1, D5, D6, false, 95, 11);
 
+  // ADC init
   analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
   analogSetWidth(10);
   analogSetCycles(20);
 
+  // lcd init
   lcd.init();                      // initialize the lcd 
   lcd.createChar(1, Grad);
   // Print a message to the LCD.
@@ -66,6 +73,7 @@ void setup() {
   lcd.setCursor(1,0);
   lcd.print("Guten Morgen");
 
+  // BMP280: Temperature sensor
   if (!bmp.begin()) 
   {
     delay(10);
@@ -81,20 +89,92 @@ void setup() {
 
   bmp_temp->printSensorDetails();    
 
+  // button
+  pinMode(PushButton, INPUT);
 
+  // Debug call
   //delay(2000);
-  //callPhone();
+  //sendSMS("Bulli test 123", "015781581259");
   //delay(10000);
+
+  lcd.clear();
+  lcd.setCursor(0,3);
+  lcd.print("wait...");
+
 }
 
-void loop() {
+void loop() 
+{
+  bool okStatus;
 
-  /*for (char ch = ' '; ch <= 'z'; ch++) 
+  okStatus = check_ok_status();
+
+  if (okStatus==true)
   {
-		swSer.write(ch);
-	}
-	swSer.println("");*/
+    lcd.clear();
+    lcd.setCursor(0,3);
+    lcd.print("done!");
+    delay(10000);
+  }
 
+  delay(100);
+}
+
+bool check_ok_status()
+{
+   
+  int okChars;
+  okChars = 0;
+  while (okChars<2)
+  {
+    if (swSer.available()) 
+    {
+      // Read the data from buffer
+      int len = 0;
+      int c;  
+      unsigned long timeout = 700;
+      unsigned long start = millis();
+      
+      int buffer[512];
+      memset(buffer, 0, sizeof(buffer));
+          
+      while ((millis() - start < timeout)) 
+      {
+          if (swSer.available()) 
+          {
+            c = swSer.read();
+            buffer[len++] = c;
+            //lcd.write(c);
+            
+            // check if O and is sent = ASCI 79
+            if (okChars == 0 && c == 79)
+            { 
+              okChars++;
+            }
+            // check if  O is sent 
+            if (okChars == 2 && c == 79)
+            { 
+              okChars=0;
+            }            
+            // check if K is sent = ASCI 75
+            if (okChars == 1 && c == 75)
+            {
+              okChars++;
+            }
+            
+
+          }
+          yield();
+      }
+    }
+  }
+  
+  return true;
+  
+}
+
+void do_data_analysis()
+{
   String SendString;
 
   SendString = printValues();
@@ -112,19 +192,38 @@ void loop() {
   SendString += "Neigung="+String((ADCtotal/400.-1.)*20.)+" Grad. :D";
   if(ADCtotal>500)
   {
-    sendSMS(SendString, "015781581259");
-    delay(1000);
+    //sendSMS(SendString, "015781581259");
+    //delay(1000);
     //sendSMS(SendString, "015773125452");
     //delay(1000);
     //sendSMS(SendString, "017660909952");
-    delay(1000);
-    delay(1000);
+    //delay(1000);
+    //delay(1000);
   }
 
   lcd.setCursor(0,3);
-  lcd.print(String((ADCtotal/400.-1.)*20.));
+  lcd.print(String(ADCtotal));
+  //lcd.print(String((ADCtotal/400.-1.)*20.));
   lcd.print(" Grad");
+
+  //check button state
+  int Push_button_state = digitalRead(PushButton);
+  if (Push_button_state == HIGH)
+  {
+    lcd.setCursor(0,3);
+    lcd.print(" AN");
+    delay(100);
+  }
+  else
+  {
+    lcd.setCursor(0,3);
+    lcd.print(" AUS");
+    delay(100);
+  }
+  
 }
+
+
 
 //#include <SPI.h>
 //#define BME_SCK 18
@@ -143,7 +242,7 @@ String printValues() {
   String Datastring;
   
   lcd.setCursor(0,0);
-  lcd.print("Temp= ");
+  lcd.print("Temp = ");
   String TString = String(temp_event.temperature);
   lcd.print(TString);
   lcd.print(" ");

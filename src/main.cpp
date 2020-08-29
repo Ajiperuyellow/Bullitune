@@ -1,10 +1,17 @@
 #include <Arduino.h>
 #include <LiquidCrystal_I2C.h>
 #include <SoftwareSerial.h>
-
+#include <string>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
+
+#include <HardwareSerial.h>
+
+
+#define RXD2 16
+#define TXD2 17
+
 
 //#include <driver/adc.h>
 //#include <Arduino.h> 
@@ -21,6 +28,11 @@ String printValues();
 void callPhone();
 void sendSMS(String TextToSend, String Nummer);
 bool check_ok_status();
+void init_gprs();
+void send_until_ok(String atCommand);
+void send_to_thingspeak(int data);
+void print_error_or_ok();
+void test_gsm();
 
 //Display
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
@@ -53,10 +65,24 @@ SoftwareSerial swSer;
 
 //CODE:
 
+void setup_test()
+{
+  Serial2.begin(BAUD_RATE);
+  //Serial2.println("Test");
+}
+
+String inputString = "";         // a String to hold incoming data
+bool stringComplete = false;  // whether the string is complete
+
+
 void setup() {
 
-  // Software Serial init
-  swSer.begin(BAUD_RATE, SWSERIAL_8N1, D5, D6, false, 95, 11);
+  Serial2.begin(BAUD_RATE);
+
+  pinMode(14, OUTPUT);
+  pinMode(12, OUTPUT);
+  digitalWrite(14,HIGH);
+  digitalWrite(12,HIGH);
 
   // ADC init
   analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
@@ -100,10 +126,112 @@ void setup() {
   lcd.clear();
   lcd.setCursor(0,3);
   lcd.print("wait...");
+  delay(1000);
+
+
+    // Software Serial init
+    //swSer.begin(BAUD_RATE, SWSERIAL_8N1, D5, D6, false, 95, 11);
+  //test_gsm();  
+  lcd.clear();
 
 }
 
 void loop() 
+{
+  lcd.clear();  
+  delay(500);
+  lcd.setCursor(0,0);
+  lcd.print("AT");
+  delay(500);
+  send_until_ok("AT");
+  delay(1000);
+
+  lcd.clear();
+  delay(500);
+  lcd.setCursor(0,0);
+  lcd.print("ATI");
+  delay(500);
+  send_until_ok("ATI");
+  delay(1000);
+  
+  init_gprs();
+  delay(1000);
+  send_to_thingspeak(5);
+  
+
+  lcd.clear();
+
+   
+  init_gprs();
+  delay(1000); 
+  send_to_thingspeak(6);
+
+
+  lcd.print("D O N E.");
+  while(1)
+  {}
+}
+
+void test()
+{
+  //init_gprs();
+  //send_to_thingspeak(12);
+  //lcd.setCursor(0,3);
+  //lcd.print("done...");
+  //Serial2.println("Test");
+  Serial2.println("AT");
+
+  while (Serial2.available()) {
+    // get the new byte:
+    char inChar = (char)Serial2.read();
+    // add it to the inputString:
+    inputString += inChar;
+    // if the incoming character is a newline, set a flag so the main loop can
+    // do something about it:
+    if (inChar == '\n') {
+      stringComplete = true;
+      inputString.trim();
+    }
+  }
+  
+  if (stringComplete == true)
+  {
+    lcd.setCursor(0,1);
+    lcd.print(inputString);
+
+    if (inputString=="OK")
+    {
+      lcd.print("YES");
+    }
+
+    inputString = "";
+    stringComplete = false;
+
+  }else
+  {
+    //Serial2.println("AT");
+  }
+  delay(10);
+  
+  //if (Serial2.available()>1) 
+  //{
+  //  c = Serial2.read();
+  //}
+
+  //send_until_ok("AT");
+  //delay(300);
+  //lcd.clear();
+  //lcd.setCursor(0,0);
+  //lcd.print("ok");
+  //delay(1000);
+
+}
+
+
+
+
+
+void print_error_or_ok()
 {
   bool okStatus;
 
@@ -114,62 +242,84 @@ void loop()
     lcd.clear();
     lcd.setCursor(0,3);
     lcd.print("done!");
-    delay(10000);
+    delay(1);
+  }
+  else
+  {
+    lcd.clear();
+    lcd.setCursor(0,2);
+    lcd.print("error!"); 
+    delay(1);  
   }
 
-  delay(100);
+  delay(1);
 }
 
 bool check_ok_status()
 {
    
-  int okChars;
+  int okChars, errorChars;
   okChars = 0;
-  while (okChars<2)
+  errorChars = 0;
+  //while (okChars<2)
   {
-    if (swSer.available()) 
-    {
+
       // Read the data from buffer
-      int len = 0;
+//      int len = 0;
       int c;  
-      unsigned long timeout = 700;
-      unsigned long start = millis();
+      //unsigned long timeout = 700;
+      //unsigned long start = millis();
       
-      int buffer[512];
-      memset(buffer, 0, sizeof(buffer));
+      //int buffer[512];
+      //memset(buffer, 0, sizeof(buffer));
           
-      while ((millis() - start < timeout)) 
-      {
-          if (swSer.available()) 
+      //while ((millis() - start < timeout)) 
+
+        //while(1)
+        {
+          while (Serial2.available()) 
           {
-            c = swSer.read();
-            buffer[len++] = c;
+            c = Serial2.read();
+            //buffer[len++] = c;
             //lcd.write(c);
-            
+
             // check if O and is sent = ASCI 79
             if (okChars == 0 && c == 79)
             { 
               okChars++;
-            }
-            // check if  O is sent 
-            if (okChars == 2 && c == 79)
-            { 
-              okChars=0;
-            }            
+            }           
             // check if K is sent = ASCI 75
             if (okChars == 1 && c == 75)
             {
               okChars++;
-            }
-            
+              return true;
+            }        
 
+            // check for errorStatus, E
+            if (errorChars == 0 && c == 69)
+            {  
+              errorChars++;
+            }
+            // check for errorStatus, R
+            if (errorChars == 1 && c == 82)
+            {  
+              errorChars++;
+            }
+            // check for errorStatus, R
+            if (errorChars == 2 && c == 82)
+            {  
+              errorChars++;
+            }
+            // check for errorStatus, O
+            if (errorChars == 3 && c == 79)
+            {  
+              return false;
+            }
           }
-          yield();
-      }
-    }
+       }
   }
   
-  return true;
+  return false;
   
 }
 
@@ -223,7 +373,26 @@ void do_data_analysis()
   
 }
 
+void test_gsm()
+{
+  lcd.setCursor(0,0);
+  while(1)
+  {
+    lcd.print("send AT");
+    Serial2.println("AT");
+    
+    int c;
+  
+    while (Serial2.available()) 
+    {
+      c = Serial2.read();
+      lcd.write(c);
+      lcd.print(c);
+    }
+    delay(100);
 
+  }
+}
 
 //#include <SPI.h>
 //#define BME_SCK 18
@@ -271,6 +440,205 @@ String printValues() {
   Datastring +="Alt=" + String(bmp.readAltitude(SEALEVELPRESSURE_HPA)) + " m, ";
   return Datastring;
 }
+
+void init_gprs()
+{
+  // AT+CREG=1
+  send_until_ok("AT+CREG=1");
+ 
+  // AT+CGATT=1
+  send_until_ok("AT+CGATT=1");
+
+  // AT+CGDCONT=1,"IP","internet.eplus.de"
+  send_until_ok("AT+CGDCONT=1,\"IP\",\"internet.eplus.de\"");
+
+  // AT+CGACT=1,1
+  send_until_ok("AT+CGACT=1,1");
+
+    lcd.setCursor(0,3);
+    lcd.print("GPRS init ok!");
+    delay(1000);
+}
+
+void send_to_thingspeak(int data)
+{
+
+  lcd.clear();
+
+  // AT+CIPSTART="TCP","api.thingspeak.com",80
+  send_until_ok("AT+CIPSTART=\"TCP\",\"api.thingspeak.com\",80");    
+    
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(".");
+  delay(100);
+
+  // AT+CIPSEND
+  Serial2.println("AT+CIPSEND");   
+  delay(100);
+  lcd.print(".");
+  delay(100);
+
+  // AT+CIPSTART="TCP","api.thingspeak.com",80
+  String getString;
+  getString = "GET https://api.thingspeak.com/update?api_key=EZV17IADITIDG1ZC&field1=";
+  getString += String(data);
+  Serial2.println(getString);
+  Serial2.write(26);
+  lcd.print(".");
+
+  lcd.setCursor(0,1);
+  lcd.print("sending...");
+  delay(3000);  
+
+  for (int i = 0; i <= 5; i++)
+  {
+    send_until_ok("AT"); 
+    delay(500);
+    lcd.clear();
+    delay(500);
+  }
+  delay(3000); 
+  for (int i = 0; i <= 5; i++)
+  {
+    send_until_ok("AT"); 
+    delay(500);
+    lcd.clear();
+    delay(500);
+  } 
+  send_until_ok("AT+CIPCLOSE");
+  send_until_ok("AT"); 
+
+  lcd.clear();
+}
+
+
+void send_until_ok_dep(String atCommand)
+{
+  Serial2.println(atCommand);
+  bool isOK;
+  isOK = check_ok_status();
+  while (!isOK)
+  {
+    delay(1);
+    Serial2.println(atCommand);
+    isOK = check_ok_status();
+  }
+}
+
+void send_until_ok(String atCommand)
+{
+  Serial2.println(atCommand);
+    
+  int cnt = 0;
+
+  bool isOK = false;
+  bool doErrorHandling = false;
+
+  while (!isOK)
+  {
+
+    stringComplete = false;
+
+    while(stringComplete==false)
+    {
+
+      while (Serial2.available() > 0 && stringComplete==false) 
+      {
+          // get the new byte:
+          char inChar = (char)Serial2.read();
+          // add it to the inputString:
+          inputString += inChar;
+          // if the incoming character is a newline, set a flag so the main loop can
+          // do something about it:
+          if(inChar== 'O')
+          {
+            inputString = "O";
+          }
+          if (inChar == 'K') 
+          {
+            stringComplete = true;
+            inputString.trim();
+          }
+          if (inChar == '\n') 
+          {
+            stringComplete = true;
+            inputString.trim();
+          }
+          int len = inputString.length();
+          if (inputString.substring(len-3) == "OR:")
+          {
+            doErrorHandling = true;
+            stringComplete = true;
+          }
+      } 
+    } 
+    
+    if (doErrorHandling==true)
+    {
+      doErrorHandling = false;
+      delay(1000);
+      
+      lcd.setCursor(0,3);
+      lcd.print("Error handling..");
+      Serial2.println("AT");
+      delay(500);
+      bool errorAway = false;
+      while(!errorAway)
+      { 
+        while (Serial2.available() > 0) 
+        {
+          // get the new byte:
+          char inChar = (char)Serial2.read();
+          if(inChar == 'K')
+          {
+            errorAway = true;
+          }
+        }
+      }
+      
+      lcd.setCursor(0,3);
+      lcd.print("Error erased.   ");
+      delay(2000);
+      cnt = 2000;
+    }
+    else if (inputString=="OK")
+    {
+      lcd.setCursor(0,3);
+      lcd.print("command ok      ");
+      isOK = true;
+    }
+    else
+    {
+      lcd.setCursor(0,1);
+      if( inputString.length() > 16)
+      {
+        String stringCut = inputString.substring(inputString.length()-16);
+        inputString = stringCut;
+      }
+      lcd.print(inputString);
+      isOK = false;
+    }
+
+    inputString="";
+
+    delay(1);
+    cnt++;
+    if (cnt>=2000)
+    {
+      cnt = 0;
+      Serial2.println(atCommand);
+    }
+
+  }
+
+  inputString = "";
+  stringComplete = false;
+
+  delay(10);
+
+}
+
 
 void sendSMS(String TextToSend, String Nummer)
 {

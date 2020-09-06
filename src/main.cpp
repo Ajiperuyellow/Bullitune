@@ -31,8 +31,11 @@ bool check_ok_status();
 void init_gprs();
 void send_until_ok(String atCommand);
 void send_to_thingspeak(int data);
+void send_to_thingspeak(String data);
 void print_error_or_ok();
 void test_gsm();
+String get_temperature();
+void wait_until_ready();
 
 //Display
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
@@ -58,7 +61,7 @@ const int PushButton=35;
 #define D6 (12)
 
 #ifdef ESP32
-#define BAUD_RATE 9600
+#define BAUD_RATE 9600 
 #endif
 
 SoftwareSerial swSer;
@@ -79,33 +82,34 @@ void setup() {
 
   Serial2.begin(BAUD_RATE);
 
+  //
+
   pinMode(14, OUTPUT);
   pinMode(12, OUTPUT);
   digitalWrite(14,HIGH);
   digitalWrite(12,HIGH);
 
   // ADC init
-  analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
-  analogSetWidth(10);
-  analogSetCycles(20);
+  //analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
+  //analogSetWidth(10);
+  //analogSetCycles(20);
 
   // lcd init
   lcd.init();                      // initialize the lcd 
+  lcd.print("Guten Morgen");
   lcd.createChar(1, Grad);
   // Print a message to the LCD.
   lcd.backlight();
   lcd.setCursor(0,0);
   
-  lcd.setCursor(1,0);
-  lcd.print("Guten Morgen");
 
   // BMP280: Temperature sensor
-  if (!bmp.begin()) 
-  {
-    delay(10);
-    lcd.print(String(bmp.begin()));
-    while (1) delay(10);
-  }
+  //if (!bmp.begin()) 
+  //{
+  //  delay(10);
+  //  lcd.print(String(bmp.begin()));
+  //  while (1) delay(10);
+  //}
   /* Default settings from datasheet. */
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
                   Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
@@ -113,7 +117,7 @@ void setup() {
                   Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                   Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
-  bmp_temp->printSensorDetails();    
+  //bmp_temp->printSensorDetails();    
 
   // button
   pinMode(PushButton, INPUT);
@@ -138,6 +142,9 @@ void setup() {
 
 void loop() 
 {
+
+  wait_until_ready();
+
   lcd.clear();  
   delay(500);
   lcd.setCursor(0,0);
@@ -154,12 +161,19 @@ void loop()
   send_until_ok("ATI");
   delay(1000);
   
-  init_gprs();
-  delay(1000);
-  send_to_thingspeak(5);
+  lcd.clear();
+
+  while(1)
+  {
+    String tempString = get_temperature();
+    init_gprs();
+    delay(1000);
+    send_to_thingspeak(tempString);
+  }
+  
   
 
-  lcd.clear();
+  
 
    
   init_gprs();
@@ -402,6 +416,13 @@ void test_gsm()
 //Adafruit_BME280 bme(BME_CS); // hardware SPI
 //Adafruit_BME280 bme(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
 
+String get_temperature()
+{
+  sensors_event_t temp_event;
+  bmp_temp->getEvent(&temp_event);
+  String TString = String(temp_event.temperature);
+  return TString;
+}
 
 String printValues() {
   sensors_event_t temp_event, pressure_event;
@@ -459,6 +480,60 @@ void init_gprs()
     lcd.print("GPRS init ok!");
     delay(1000);
 }
+
+void send_to_thingspeak(String data)
+{
+
+  lcd.clear();
+
+  // AT+CIPSTART="TCP","api.thingspeak.com",80
+  send_until_ok("AT+CIPSTART=\"TCP\",\"api.thingspeak.com\",80");    
+    
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print(".");
+  delay(100);
+
+  // AT+CIPSEND
+  Serial2.println("AT+CIPSEND");   
+  delay(100);
+  lcd.print(".");
+  delay(100);
+
+  // AT+CIPSTART="TCP","api.thingspeak.com",80
+  String getString;
+  getString = "GET https://api.thingspeak.com/update?api_key=EZV17IADITIDG1ZC&field1=";
+  getString += data;
+  Serial2.println(getString);
+  Serial2.write(26);
+  lcd.print(".");
+
+  lcd.setCursor(0,1);
+  lcd.print("sending...");
+  delay(3000);  
+
+  for (int i = 0; i <= 5; i++)
+  {
+    send_until_ok("AT"); 
+    delay(500);
+    lcd.clear();
+    delay(500);
+  }
+  delay(3000); 
+  for (int i = 0; i <= 5; i++)
+  {
+    send_until_ok("AT"); 
+    delay(500);
+    lcd.clear();
+    delay(500);
+  } 
+  send_until_ok("AT+CIPCLOSE");
+  send_until_ok("AT"); 
+
+  lcd.clear();
+}
+
+
 
 void send_to_thingspeak(int data)
 {
@@ -639,6 +714,43 @@ void send_until_ok(String atCommand)
 
 }
 
+
+void wait_until_ready()
+{
+
+ for (int i = 0; i < 1000; i++) 
+ {
+    Serial2.println("AT");
+    while (Serial2.available() > 0) 
+    {
+      char inChar = (char)Serial2.read();
+    }
+    delay(1);
+ }
+
+  
+ 
+  delay(500);
+  bool errorAway = false;
+  while(!errorAway)
+  { 
+    while (Serial2.available() > 0) 
+    {
+      // get the new byte:
+      char inChar = (char)Serial2.read();
+      if(inChar == 'K')
+      {
+        errorAway = true;
+      }
+      //lcd.print(inChar);
+    }
+    Serial2.println("AT");
+    delay(500);
+  }
+  //lcd.clear();
+  //lcd.print("GSM ready.");
+  delay(2000);
+}
 
 void sendSMS(String TextToSend, String Nummer)
 {

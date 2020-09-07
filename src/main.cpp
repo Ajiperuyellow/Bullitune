@@ -8,6 +8,8 @@
 
 #include <HardwareSerial.h>
 
+#include "TinyGPS++.h"
+TinyGPSPlus gps;
 
 #define RXD2 16
 #define TXD2 17
@@ -57,8 +59,8 @@ int ADCValue = 0;
 const int PushButton=35;
 
 //SoftwareSerial
-#define D5 (14)
-#define D6 (12)
+#define txPinSS (18)
+#define rxPinSS (19)
 
 #ifdef ESP32
 #define BAUD_RATE 9600 
@@ -133,16 +135,92 @@ void setup() {
   delay(1000);
 
 
-    // Software Serial init
-    //swSer.begin(BAUD_RATE, SWSERIAL_8N1, D5, D6, false, 95, 11);
+  // Software Serial init
+  swSer.begin(BAUD_RATE, SWSERIAL_8N1, rxPinSS, txPinSS, false, 95, 11);
   //test_gsm();  
   lcd.clear();
+  lcd.clear();  
+  lcd.setCursor(0,0);
+  lcd.print("GPS");
+}
+
+void simple_read_SwSer()
+{
+  bool stringComplete = false;
+  inputString="";
+
+  while(stringComplete==false)
+  {
+    while (swSer.available() > 0 && stringComplete==false) 
+    {
+      // get the new byte:
+      char inChar = (char)swSer.read();
+      
+      // add it to the inputString:
+      inputString += inChar;
+      // if the incoming character is a newline, set a flag so the main loop can
+      // do something about it:
+       
+      if (inChar == '\n') 
+      {
+        stringComplete = true;
+        inputString.trim();
+      }
+          
+    } 
+  } 
 
 }
 
 void loop() 
 {
 
+  
+  while (swSer.available() > 0)
+  {
+    gps.encode(swSer.read());
+  }
+  
+  if (gps.altitude.isUpdated())
+  {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    char ausgabeLat[12];
+    char ausgabeLon[12];
+    char ausgabeHeight[10];
+    dtostrf(gps.location.lat(), 1, 6,ausgabeLat);
+    dtostrf(gps.location.lng(), 1, 6,ausgabeLon);
+    dtostrf(gps.altitude.meters(), 1, 2,ausgabeHeight);
+    lcd.print("LAT=");  lcd.print(ausgabeLat); lcd.print(" N");
+    lcd.setCursor(0,2);
+    lcd.print("LON="); lcd.print(ausgabeLon); lcd.print(" E");
+    lcd.setCursor(0,3);
+    lcd.print("ALT=");  lcd.print(ausgabeHeight); lcd.print(" m");
+  }
+
+  
+  
+  // while (swSer.available() > 0)
+  // {
+  //   c = wSer.read();
+  //   gps.encode(swSer.read());
+  // }
+  // lcd.print(c);
+  // if (gps.altitude.isUpdated())
+  // {
+  //   lcd.clear();
+  //   lcd.setCursor(0,1);
+  //   lcd.print("LAT=");  lcd.println(gps.location.lat(), 6);
+  //   lcd.setCursor(0,2);
+  //   lcd.print("LONG="); lcd.println(gps.location.lng(), 6);
+  //   lcd.setCursor(0,3);
+  //   lcd.print("ALT=");  lcd.println(gps.altitude.meters());
+  // }
+  
+}
+
+void loop_gsm_only()
+{
   wait_until_ready();
 
   lcd.clear();  

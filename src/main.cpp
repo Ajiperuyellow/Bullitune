@@ -68,6 +68,9 @@ const int PushButton=35;
 
 SoftwareSerial swSer;
 
+//
+int count = 0;
+
 //CODE:
 
 void setup_test()
@@ -126,7 +129,7 @@ void setup() {
 
   // Debug call
   //delay(2000);
-  //sendSMS("Bulli test 123", "015781581259");
+  
   //delay(10000);
 
   lcd.clear();
@@ -142,6 +145,19 @@ void setup() {
   lcd.clear();  
   lcd.setCursor(0,0);
   lcd.print("GPS");
+
+  wait_until_ready();
+
+  lcd.clear();  
+  delay(500);
+  lcd.setCursor(0,0);
+  lcd.print("AT");
+  delay(500);
+  send_until_ok("AT");
+  delay(1000);
+  //sendSMS("Bulli test 123", "015781581259");
+
+
 }
 
 void simple_read_SwSer()
@@ -172,9 +188,16 @@ void simple_read_SwSer()
 
 }
 
+// uses the constructor in string class 
+// to convert character array to string 
+String convertToString(char* a) 
+{ 
+    String s(a); 
+    return s; 
+} 
+
 void loop() 
 {
-
   
   while (swSer.available() > 0)
   {
@@ -191,11 +214,24 @@ void loop()
     dtostrf(gps.location.lat(), 1, 6,ausgabeLat);
     dtostrf(gps.location.lng(), 1, 6,ausgabeLon);
     dtostrf(gps.altitude.meters(), 1, 2,ausgabeHeight);
+    lcd.setCursor(0,0);
+    lcd.print(count);
+    lcd.setCursor(0,1);
     lcd.print("LAT=");  lcd.print(ausgabeLat); lcd.print(" N");
     lcd.setCursor(0,2);
     lcd.print("LON="); lcd.print(ausgabeLon); lcd.print(" E");
     lcd.setCursor(0,3);
     lcd.print("ALT=");  lcd.print(ausgabeHeight); lcd.print(" m");
+    count++;
+    String smsString = convertToString(ausgabeLat) + "N," + convertToString(ausgabeLon) +"E\nALT="+convertToString(ausgabeHeight)+"m.";
+    if (count == 20)
+    {
+      count = 0;
+      sendSMS(smsString, "015781581259");
+      delay(2000);
+      wait_until_ready();
+    }
+    
   }
 
   
@@ -832,12 +868,14 @@ void wait_until_ready()
 
 void sendSMS(String TextToSend, String Nummer)
 {
-  swSer.println("AT+CMGF=1");
+  send_until_ok("AT+CMGF=1");
   delay(2000);
-  swSer.println("AT+CMGS="+Nummer);
+  Serial2.println("AT+CMGS="+Nummer);
   delay(300);
-  swSer.println(TextToSend);
-  swSer.write(26);
+  Serial2.println(TextToSend);
+  Serial2.write(26);
+  delay(300);
+  send_until_ok("AT");
 }
 
 void callPhone()

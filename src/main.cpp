@@ -66,9 +66,20 @@ const int PushButton=35;
 #define BAUD_RATE 9600 
 #endif
 
-SoftwareSerial swSer;
+//***** Serial Ports
+//***** GPS
+SoftwareSerial gpsSoftSerial;
+// Rx: 19
+// Tx: 18
+//***** GSM
+//Serial2 
+// Rx: 16
+// Tx 17
+//***** MPPT
+HardwareSerial mpptHardSerial;
+// Rx: 23
+// Tx: 25
 
-//
 int count = 0;
 
 //CODE:
@@ -84,31 +95,57 @@ bool stringComplete = false;  // whether the string is complete
 
 
 void setup() {
+  //***** GSM ON
+  //Serial2.begin(BAUD_RATE);
 
-  Serial2.begin(BAUD_RATE);
-
-  //
-
+  //***** Some Pins
+  pinMode(PushButton, INPUT);
   pinMode(14, OUTPUT);
   pinMode(12, OUTPUT);
   digitalWrite(14,HIGH);
   digitalWrite(12,HIGH);
 
-  // ADC init
+  //***** ADC init
   //analogSetAttenuation((adc_attenuation_t)3);   // -11dB range
   //analogSetWidth(10);
   //analogSetCycles(20);
 
-  // lcd init
+  //***** lcd init
   lcd.init();                      // initialize the lcd 
-  lcd.print("Guten Morgen");
   lcd.createChar(1, Grad);
-  // Print a message to the LCD.
   lcd.backlight();
   lcd.setCursor(0,0);
-  
+  lcd.clear();
+  lcd.setCursor(0,3);
+  lcd.print("wait...");
+  delay(1000);
 
-  // BMP280: Temperature sensor
+
+  //***** Software Serial init
+  gpsSoftSerial.begin(BAUD_RATE, SWSERIAL_8N1, rxPinSS, txPinSS, false, 95, 11);
+  lcd.clear(); 
+  lcd.setCursor(0,0);
+  lcd.print("GPS");
+
+  //***** Init GSM
+  /*wait_until_ready();
+
+  lcd.clear();  
+  delay(500);
+  lcd.setCursor(0,0);
+  lcd.print("AT");
+  delay(500);
+  send_until_ok("AT");
+  delay(1000);
+  */
+  //***** Test GSM
+  //sendSMS("Bulli test 123", "015781581259");
+
+
+}
+
+void init_bmp_temp_sensor()
+{ //***** BMP280: Temperature sensor
   //if (!bmp.begin()) 
   //{
   //  delay(10);
@@ -122,55 +159,20 @@ void setup() {
                   Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                   Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
-  //bmp_temp->printSensorDetails();    
-
-  // button
-  pinMode(PushButton, INPUT);
-
-  // Debug call
-  //delay(2000);
-  
-  //delay(10000);
-
-  lcd.clear();
-  lcd.setCursor(0,3);
-  lcd.print("wait...");
-  delay(1000);
-
-
-  // Software Serial init
-  swSer.begin(BAUD_RATE, SWSERIAL_8N1, rxPinSS, txPinSS, false, 95, 11);
-  //test_gsm();  
-  lcd.clear();
-  lcd.clear();  
-  lcd.setCursor(0,0);
-  lcd.print("GPS");
-
-  wait_until_ready();
-
-  lcd.clear();  
-  delay(500);
-  lcd.setCursor(0,0);
-  lcd.print("AT");
-  delay(500);
-  send_until_ok("AT");
-  delay(1000);
-  //sendSMS("Bulli test 123", "015781581259");
-
-
+  //bmp_temp->printSensorDetails();
 }
 
-void simple_read_SwSer()
+void simple_read_gpsSoftSerial()
 {
   bool stringComplete = false;
   inputString="";
 
   while(stringComplete==false)
   {
-    while (swSer.available() > 0 && stringComplete==false) 
+    while (gpsSoftSerial.available() > 0 && stringComplete==false) 
     {
       // get the new byte:
-      char inChar = (char)swSer.read();
+      char inChar = (char)gpsSoftSerial.read();
       
       // add it to the inputString:
       inputString += inChar;
@@ -199,9 +201,9 @@ String convertToString(char* a)
 void loop() 
 {
   
-  while (swSer.available() > 0)
+  while (gpsSoftSerial.available() > 0)
   {
-    gps.encode(swSer.read());
+    gps.encode(gpsSoftSerial.read());
   }
   
   if (gps.altitude.isUpdated())
@@ -236,10 +238,10 @@ void loop()
 
   
   
-  // while (swSer.available() > 0)
+  // while (gpsSoftSerial.available() > 0)
   // {
   //   c = wSer.read();
-  //   gps.encode(swSer.read());
+  //   gps.encode(gpsSoftSerial.read());
   // }
   // lcd.print(c);
   // if (gps.altitude.isUpdated())
@@ -880,5 +882,5 @@ void sendSMS(String TextToSend, String Nummer)
 
 void callPhone()
 {
-  swSer.println("ATD015781581259");;
+  gpsSoftSerial.println("ATD015781581259");;
 }

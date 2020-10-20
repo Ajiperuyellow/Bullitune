@@ -5,18 +5,16 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
-
 #include <HardwareSerial.h>
-
 #include "TinyGPS++.h"
+#include "VeDirectFrameHandler.h"
+//#include <driver/adc.h>
+
+//**** Define Objects
+VeDirectFrameHandler mppt;
 TinyGPSPlus gps;
 
-#define RXD2 16
-#define TXD2 17
 
-
-//#include <driver/adc.h>
-//#include <Arduino.h> 
 
 //BMP280
 Adafruit_BMP280 bmp; // use I2C interface
@@ -37,8 +35,14 @@ void send_to_thingspeak(String data);
 void print_error_or_ok();
 void test_gsm();
 String get_temperature();
+String convertToString(char* a);
 void wait_until_ready();
-
+void ReadVEData();
+void EverySecond();
+void show_mppt_data_lcd();
+void send_mmpt_to_thingspeak();
+void sendDataEveryTimeslot();
+void send_to_thingspeak_field_select(String data, String field);
 //Display
 LiquidCrystal_I2C lcd(0x27,20,4);  // set the LCD address to 0x27 for a 16 chars and 2 line display
 byte Grad[8] = {
@@ -58,17 +62,16 @@ int ADCValue = 0;
 // Button
 const int PushButton=35;
 
-//SoftwareSerial
-#define txPinSS (18)
-#define rxPinSS (19)
-
 #ifdef ESP32
 #define BAUD_RATE 9600 
 #endif
 
+
 //***** Serial Ports
 //***** GPS
 SoftwareSerial gpsSoftSerial;
+#define txPinSS (18)
+#define rxPinSS (19)
 // Rx: 19
 // Tx: 18
 //***** GSM
@@ -76,27 +79,25 @@ SoftwareSerial gpsSoftSerial;
 // Rx: 16
 // Tx 17
 //***** MPPT
-HardwareSerial mpptHardSerial;
+//Serial
+#define rxPinMPPT (23)                           
+#define txPinMPPT (25)               
 // Rx: 23
 // Tx: 25
 
+//***** Some Variables
 int count = 0;
-
-//CODE:
-
-void setup_test()
-{
-  Serial2.begin(BAUD_RATE);
-  //Serial2.println("Test");
-}
-
 String inputString = "";         // a String to hold incoming data
 bool stringComplete = false;  // whether the string is complete
 
+//***** SETUP:
+void setup() 
+{
+  //***** MPPT
+  Serial.begin(19200, SERIAL_8N1, rxPinMPPT, txPinMPPT);
 
-void setup() {
   //***** GSM ON
-  //Serial2.begin(BAUD_RATE);
+  Serial2.begin(BAUD_RATE);
 
   //***** Some Pins
   pinMode(PushButton, INPUT);
@@ -117,32 +118,171 @@ void setup() {
   lcd.setCursor(0,0);
   lcd.clear();
   lcd.setCursor(0,3);
-  lcd.print("wait...");
-  delay(1000);
+  lcd.print("init...");
+  //delay(1000);
 
 
   //***** Software Serial init
-  gpsSoftSerial.begin(BAUD_RATE, SWSERIAL_8N1, rxPinSS, txPinSS, false, 95, 11);
-  lcd.clear(); 
-  lcd.setCursor(0,0);
-  lcd.print("GPS");
+  //gpsSoftSerial.begin(BAUD_RATE, SWSERIAL_8N1, rxPinSS, txPinSS, false, 95, 11);
+  //lcd.clear(); 
+  //lcd.setCursor(0,0);
+  //lcd.print("GPS");
 
   //***** Init GSM
-  /*wait_until_ready();
-
-  lcd.clear();  
+  wait_until_ready();
   delay(500);
-  lcd.setCursor(0,0);
-  lcd.print("AT");
-  delay(500);
-  send_until_ok("AT");
+  init_gprs();
   delay(1000);
-  */
+  lcd.clear();  
+  lcd.print("Ready!");
+  delay(1000);
+  
   //***** Test GSM
   //sendSMS("Bulli test 123", "015781581259");
 
 
 }
+
+//***** LOOP:
+void loop() 
+{
+  ReadVEData();
+  EverySecond();
+  sendDataEveryTimeslot();
+
+  while (gpsSoftSerial.available() > 0 && false)
+  {
+    gps.encode(gpsSoftSerial.read());
+  }
+  
+  if (gps.altitude.isUpdated() && false)
+  {
+    lcd.clear();
+    lcd.setCursor(0,1);
+    char ausgabeLat[12];
+    char ausgabeLon[12];
+    char ausgabeHeight[10];
+    dtostrf(gps.location.lat(), 1, 6,ausgabeLat);
+    dtostrf(gps.location.lng(), 1, 6,ausgabeLon);
+    dtostrf(gps.altitude.meters(), 1, 2,ausgabeHeight);
+    lcd.setCursor(0,0);
+    lcd.print(count);
+    lcd.setCursor(0,1);
+    lcd.print("LAT=");  lcd.print(ausgabeLat); lcd.print(" N");
+    lcd.setCursor(0,2);
+    lcd.print("LON="); lcd.print(ausgabeLon); lcd.print(" E");
+    lcd.setCursor(0,3);
+    lcd.print("ALT=");  lcd.print(ausgabeHeight); lcd.print(" m");
+    count++;
+    String smsString = convertToString(ausgabeLat) + "N," + convertToString(ausgabeLon) +"E\nALT="+convertToString(ausgabeHeight)+"m.";
+    if (count == 20)
+    {
+      count = 0;
+      sendSMS(smsString, "015781581259");
+      delay(2000);
+      wait_until_ready();
+    }
+    
+  }
+
+  
+  
+  // while (gpsSoftSerial.available() > 0)
+  // {
+  //   c = wSer.read();
+  //   gps.encode(gpsSoftSerial.read());
+  // }
+  // lcd.print(c);
+  // if (gps.altitude.isUpdated())
+  // {
+  //   lcd.clear();
+  //   lcd.setCursor(0,1);
+  //   lcd.print("LAT=");  lcd.println(gps.location.lat(), 6);
+  //   lcd.setCursor(0,2);
+  //   lcd.print("LONG="); lcd.println(gps.location.lng(), 6);
+  //   lcd.setCursor(0,3);
+  //   lcd.print("ALT=");  lcd.println(gps.altitude.meters());
+  // }
+  
+}
+
+void ReadVEData() 
+{
+    while ( Serial.available() ) {
+        mppt.rxData(Serial.read());
+    }
+    yield();
+}
+
+void EverySecond() {
+    static unsigned long prev_millis;
+
+    if (millis() - prev_millis > 500) {
+        show_mppt_data_lcd();
+        //send_mmpt_to_thingspeak();
+        prev_millis = millis();
+    }
+}
+void sendDataEveryTimeslot() {
+    static unsigned long prev_millis;
+
+    if (millis() - prev_millis > 5000) {
+        //show_mppt_data_lcd();
+        send_mmpt_to_thingspeak();
+        prev_millis = millis();
+    }
+}
+void send_mmpt_to_thingspeak()
+{
+  String panelPower, batteryCurr, batteryVolt, loadCurr;
+  panelPower = convertToString(mppt.veValue[6]);
+  send_to_thingspeak_field_select(panelPower,"1");
+
+  delay(5000);
+  wait_until_ready();
+
+  /*batteryVolt = convertToString(mppt.veValue[3]); //
+  send_to_thingspeak_field_select("3","3");
+
+  delay(5000);
+  wait_until_ready();
+
+  batteryCurr = convertToString(mppt.veValue[4]);
+  send_to_thingspeak_field_select(batteryCurr,"4");
+
+  delay(5000);
+  wait_until_ready();
+
+  loadCurr = convertToString(mppt.veValue[12]); //
+  send_to_thingspeak_field_select("2","2");
+
+  delay(5000);
+  wait_until_ready();*/
+
+}
+
+
+void show_mppt_data_lcd() {
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print(mppt.veName[3]);
+    lcd.print("=");
+    lcd.print(mppt.veValue[3]);  
+    lcd.setCursor(0,1);
+    lcd.print(mppt.veName[6]);
+    lcd.print("=");
+    lcd.print(mppt.veValue[6]); 
+        lcd.setCursor(0,2);
+    lcd.print(mppt.veName[12]);
+    lcd.print("=");
+    lcd.print(mppt.veValue[12]); 
+        lcd.setCursor(0,3);
+    lcd.print(mppt.veName[4]);
+    lcd.print("=");
+    lcd.print(mppt.veValue[4]); 
+
+}
+
 
 void init_bmp_temp_sensor()
 { //***** BMP280: Temperature sensor
@@ -198,64 +338,6 @@ String convertToString(char* a)
     return s; 
 } 
 
-void loop() 
-{
-  
-  while (gpsSoftSerial.available() > 0)
-  {
-    gps.encode(gpsSoftSerial.read());
-  }
-  
-  if (gps.altitude.isUpdated())
-  {
-    lcd.clear();
-    lcd.setCursor(0,1);
-    char ausgabeLat[12];
-    char ausgabeLon[12];
-    char ausgabeHeight[10];
-    dtostrf(gps.location.lat(), 1, 6,ausgabeLat);
-    dtostrf(gps.location.lng(), 1, 6,ausgabeLon);
-    dtostrf(gps.altitude.meters(), 1, 2,ausgabeHeight);
-    lcd.setCursor(0,0);
-    lcd.print(count);
-    lcd.setCursor(0,1);
-    lcd.print("LAT=");  lcd.print(ausgabeLat); lcd.print(" N");
-    lcd.setCursor(0,2);
-    lcd.print("LON="); lcd.print(ausgabeLon); lcd.print(" E");
-    lcd.setCursor(0,3);
-    lcd.print("ALT=");  lcd.print(ausgabeHeight); lcd.print(" m");
-    count++;
-    String smsString = convertToString(ausgabeLat) + "N," + convertToString(ausgabeLon) +"E\nALT="+convertToString(ausgabeHeight)+"m.";
-    if (count == 20)
-    {
-      count = 0;
-      sendSMS(smsString, "015781581259");
-      delay(2000);
-      wait_until_ready();
-    }
-    
-  }
-
-  
-  
-  // while (gpsSoftSerial.available() > 0)
-  // {
-  //   c = wSer.read();
-  //   gps.encode(gpsSoftSerial.read());
-  // }
-  // lcd.print(c);
-  // if (gps.altitude.isUpdated())
-  // {
-  //   lcd.clear();
-  //   lcd.setCursor(0,1);
-  //   lcd.print("LAT=");  lcd.println(gps.location.lat(), 6);
-  //   lcd.setCursor(0,2);
-  //   lcd.print("LONG="); lcd.println(gps.location.lng(), 6);
-  //   lcd.setCursor(0,3);
-  //   lcd.print("ALT=");  lcd.println(gps.altitude.meters());
-  // }
-  
-}
 
 void loop_gsm_only()
 {
@@ -356,10 +438,6 @@ void test()
   //delay(1000);
 
 }
-
-
-
-
 
 void print_error_or_ok()
 {
@@ -597,6 +675,63 @@ void init_gprs()
     delay(1000);
 }
 
+void send_to_thingspeak_field_select(String data, String field)
+{
+  lcd.setCursor(16,0);
+  lcd.print("send");
+  //lcd.clear();
+
+  // AT+CIPSTART="TCP","api.thingspeak.com",80
+  send_until_ok("AT+CIPSTART=\"TCP\",\"api.thingspeak.com\",80");    
+    
+  //lcd.clear();
+
+  delay(100);
+
+  // AT+CIPSEND
+  Serial2.println("AT+CIPSEND");   
+  delay(100);
+  //lcd.print(".");
+  delay(100);
+
+  // AT+CIPSTART="TCP","api.thingspeak.com",80
+  String getString;
+  getString = "GET https://api.thingspeak.com/update?api_key=EZV17IADITIDG1ZC&field";
+  getString += field;
+  getString += "=";
+  getString += data;
+  Serial2.println(getString);
+  Serial2.write(26);
+  //lcd.print(".");
+
+  //lcd.setCursor(0,1);
+  //lcd.print("sending...");
+  delay(3000);  
+
+  for (int i = 0; i <= 5; i++)
+  {
+    send_until_ok("AT"); 
+    delay(500);
+    //lcd.clear();
+    delay(500);
+  }
+  delay(3000); 
+  for (int i = 0; i <= 5; i++)
+  {
+    send_until_ok("AT"); 
+    delay(500);
+    //lcd.clear();
+    delay(500);
+  } 
+  send_until_ok("AT+CIPCLOSE");
+  send_until_ok("AT"); 
+
+  //lcd.clear();
+  lcd.setCursor(16,0);
+  lcd.print("done");
+}
+
+
 void send_to_thingspeak(String data)
 {
 
@@ -618,7 +753,7 @@ void send_to_thingspeak(String data)
 
   // AT+CIPSTART="TCP","api.thingspeak.com",80
   String getString;
-  getString = "GET https://api.thingspeak.com/update?api_key=EZV17IADITIDG1ZC&field1=";
+  getString = "GET https://api.thingspeak.com/update?api_key=EZV17IADITIDG1ZC&field3=";
   getString += data;
   Serial2.println(getString);
   Serial2.write(26);
@@ -650,7 +785,6 @@ void send_to_thingspeak(String data)
 }
 
 
-
 void send_to_thingspeak(int data)
 {
 
@@ -672,7 +806,7 @@ void send_to_thingspeak(int data)
 
   // AT+CIPSTART="TCP","api.thingspeak.com",80
   String getString;
-  getString = "GET https://api.thingspeak.com/update?api_key=EZV17IADITIDG1ZC&field1=";
+  getString = "GET https://api.thingspeak.com/update?api_key=EZV17IADITIDG1ZC&field3=";
   getString += String(data);
   Serial2.println(getString);
   Serial2.write(26);
@@ -703,7 +837,6 @@ void send_to_thingspeak(int data)
   lcd.clear();
 }
 
-
 void send_until_ok_dep(String atCommand)
 {
   Serial2.println(atCommand);
@@ -722,7 +855,7 @@ void send_until_ok(String atCommand)
   Serial2.println(atCommand);
     
   int cnt = 0;
-
+  int cntErrorEraser = 0;
   bool isOK = false;
   bool doErrorHandling = false;
 
@@ -770,8 +903,8 @@ void send_until_ok(String atCommand)
       doErrorHandling = false;
       delay(1000);
       
-      lcd.setCursor(0,3);
-      lcd.print("Error handling..");
+      lcd.setCursor(6,3);
+      lcd.print("Error handling");
       Serial2.println("AT");
       delay(500);
       bool errorAway = false;
@@ -788,26 +921,27 @@ void send_until_ok(String atCommand)
         }
       }
       
-      lcd.setCursor(0,3);
-      lcd.print("Error erased.   ");
+      lcd.setCursor(6,3);
+      lcd.print("Error erased. ");
+      cntErrorEraser++;
       delay(2000);
-      cnt = 2000;
+      cnt = 4100;
     }
     else if (inputString=="OK")
     {
-      lcd.setCursor(0,3);
-      lcd.print("command ok      ");
+      //lcd.setCursor(0,3);
+      //lcd.print("command ok      ");
       isOK = true;
     }
     else
     {
-      lcd.setCursor(0,1);
+      //lcd.setCursor(0,1);
       if( inputString.length() > 16)
       {
         String stringCut = inputString.substring(inputString.length()-16);
         inputString = stringCut;
       }
-      lcd.print(inputString);
+      //lcd.print(inputString);
       isOK = false;
     }
 
@@ -815,13 +949,33 @@ void send_until_ok(String atCommand)
 
     delay(1);
     cnt++;
-    if (cnt>=2000)
+    if (cnt>=4000 && cntErrorEraser < 20)
     {
       cnt = 0;
+      delay(1000);
       Serial2.println(atCommand);
+      isOK = false;
+      doErrorHandling = false;
+    }else if (cntErrorEraser > 20)
+    {
+      cntErrorEraser = 0;
+      for (int i = 0; i < 1000; i++) 
+      {
+          Serial2.println("AT");
+          while (Serial2.available() > 0) 
+          {
+            char inChar = (char)Serial2.read();
+          }
+          delay(1);
+      }
+      cnt = 0;
+      delay(1000);
+      Serial2.println(atCommand);
+      isOK = false;
+      doErrorHandling = false;
     }
+ }
 
-  }
 
   inputString = "";
   stringComplete = false;
@@ -829,7 +983,6 @@ void send_until_ok(String atCommand)
   delay(10);
 
 }
-
 
 void wait_until_ready()
 {
@@ -866,6 +1019,11 @@ void wait_until_ready()
   //lcd.clear();
   //lcd.print("GSM ready.");
   delay(2000);
+
+  delay(500);
+  send_until_ok("AT");
+  delay(1000);
+
 }
 
 void sendSMS(String TextToSend, String Nummer)
